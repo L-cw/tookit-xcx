@@ -10,6 +10,11 @@ const list: listItem[] = [
 		desc: '通过 AppId 查询',
 		url: '/pages/tools/search-miniapp-name'
 	},
+	{
+		title: '2048',
+		desc: '2048',
+		url: '/pages/tools/2048'
+	}
 	// {
 	// 	title: '照片添加水印',
 	// 	desc: '光圈、焦距、ISO等',
