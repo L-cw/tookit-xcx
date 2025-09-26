@@ -22,6 +22,12 @@
 			}
 		},
 		{
+			"path": "pages/tools/stack",
+			"style": {
+				"navigationBarTitleText": "Stack"
+			}
+		},
+		{
 			"path": "pages/tools/add-photo-mask",
 			"style": {
 				"navigationBarTitleText": "照片添加水印"

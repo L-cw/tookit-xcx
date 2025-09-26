@@ -14,6 +14,11 @@ const list: listItem[] = [
 		title: '2048',
 		desc: '2048',
 		url: '/pages/tools/2048'
+	},
+	{
+		title: 'Stack',
+		desc: 'Stack',
+		url: '/pages/tools/stack'
 	}
 	// {
 	// 	title: '照片添加水印',
