@@ -1,60 +1,70 @@
-<!--
- * @Author: luchengwei
- * @Date: 2025-09-23 21:00:00
- * @LastEditTime: 2025-09-23 21:00:00
- * @Description: 
- * @LastEditors: luchengwei
--->
 <template>
-  <div class="wrapper">
-    <header class="topbar">
-      <div class="brand">
-        <div class="logo">2048</div>
-        <div class="subtitle">新2048</div>
-      </div>
-      <div class="scores">
-        <div class="score">
-          <div class="label">得分</div>
-          <div class="value">{{ score }}</div>
-        </div>
-        <div class="score">
-          <div class="label">最高分</div>
-          <div class="value">{{ bestScore }}</div>
-        </div>
-      </div>
-    </header>
+  <view class="wrapper" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
+    <view class="topbar">
+      <view class="brand">
+        <view class="logo">2048</view>
+        <view class="subtitle">益智解压</view>
+      </view>
+      <view class="scores">
+        <view class="score">
+          <view class="label">得分</view>
+          <view class="value">{{ score }}</view>
+        </view>
+        <view class="score">
+          <view class="label">最高分</view>
+          <view class="value">{{ bestScore }}</view>
+        </view>
+      </view>
+    </view>
 
-    <div
-      class="board"
-      ref="boardEl"
-      @touchstart.passive="onTouchStart"
-      @touchmove.prevent="onTouchMove"
-      @touchend.passive="onTouchEnd"
-    >
-      <div class="grid">
-        <div v-for="n in 16" :key="n" class="grid-cell" />
-      </div>
+    <view class="toolbar">
+      <button class="btn" @click="newGame">重置</button>
+      <button class="btn" :class="{ disabled: board.filter(v => v > 0).length <= 2 }" @click="startRemove">任意消除</button>
+      <button class="btn" @click="startReplace">任意替换</button>
+    </view>
 
-      <div class="tiles">
-        <div
+    <view class="board">
+      <view class="grid">
+        <view v-for="n in 16" :key="n" class="grid-cell" />
+      </view>
+
+      <view class="tiles">
+        <view
           v-for="(v, i) in board"
           :key="i + '-' + v + '-' + animKey"
           class="tile"
-          :class="['v' + v, { empty: v === 0 }]"
+          :class="['v' + v, { empty: v === 0, pop: poppedIndex===i || mergedIndices.includes(i) }]"
+          @click="onTileClick(i)"
         >
-          <span v-if="v !== 0">{{ v }}</span>
-        </div>
-      </div>
+          <text v-if="v !== 0">{{ v }}</text>
+        </view>
+      </view>
 
-      <div v-if="isGameOver" class="overlay">
-        <div class="overlay-card">
-          <h3>游戏结束</h3>
-          <p>本局得分：{{ score }}</p>
-          <button class="btn big" @click="newGame">再来一局</button>
-        </div>
-      </div>
-    </div>
-  </div>
+      <view v-if="isGameOver" class="mask">
+        <view class="overlay-card">
+          <view>游戏结束</view>
+          <view>本局得分：{{ score }}</view>
+          <button class="btn" @click="newGame">再来一局</button>
+        </view>
+      </view>
+
+    </view>
+    <view v-if="mode==='remove'" class="mask" @click="mode = 'none'">
+      <view class="hint-text">点击任意数字块进行消除</view>
+    </view>
+
+    <!-- 任意替换蒙层 + 选择数字按钮 -->
+    <view v-else-if="mode==='replace'" class="mask" @click="mode = 'none'">
+      <view class="replace-panel" @click.stop>
+        <view v-for="val in [2,4,8,16,32]" 
+              :key="val" 
+              :class="['mini-tile', 'v' + val]" 
+              @click.stop="confirmReplace(val)">
+          {{val}}
+        </view>
+      </view>
+    </view>
+  </view>
 </template>
 
 <script setup lang="ts">
@@ -65,18 +75,17 @@ type Dir = 'left' | 'right' | 'up' | 'down'
 const SIZE = 4
 const board = reactive<number[]>(Array(SIZE * SIZE).fill(0))
 const score = ref(0)
-const bestScore = ref<number>(parseInt(localStorage.getItem('v2048_best') || '0'))
-const undoStack = reactive<{ board: number[]; score: number }[]>([])
+const bestScore = ref<number>(uni.getStorageSync('v2048_best') || 0)
 const isGameOver = ref(false)
 const animKey = ref(0)
-const boardEl = ref<HTMLDivElement | null>(null)
+const poppedIndex = ref<number|null>(null)
+const mergedIndices = ref<number[]>([])
+
+const mode = ref<'none'|'remove'|'replace'>('none')
+const selectedIndex = ref<number|null>(null)
 
 function idx(r: number, c: number) {
   return r * SIZE + c
-}
-
-function cloneBoard(b = board) {
-  return b.slice()
 }
 
 function bump() {
@@ -87,7 +96,6 @@ function reset() {
   for (let i = 0; i < board.length; i++) board[i] = 0
   score.value = 0
   isGameOver.value = false
-  undoStack.length = 0
   spawn()
   spawn()
   bump()
@@ -98,16 +106,16 @@ function newGame() {
 }
 
 function emptyCells() {
-  const res: number[] = []
-  board.forEach((v, i) => v === 0 && res.push(i))
-  return res
+  return board.map((v, i) => v===0?i:-1).filter(i=>i>=0)
 }
 
 function spawn() {
   const empties = emptyCells()
-  if (empties.length === 0) return false
+  if (!empties.length) return false
   const spot = empties[Math.floor(Math.random() * empties.length)]
   board[spot] = Math.random() < 0.9 ? 2 : 4
+  poppedIndex.value = spot
+  setTimeout(()=> poppedIndex.value=null,200)
   return true
 }
 
@@ -138,112 +146,377 @@ function lineIndices(dir: Dir, line: number): number[] {
 }
 
 function collapse(values: number[]) {
-  const nonZero = values.filter((v) => v !== 0)
+  const nonZero = values.filter(v => v!==0)
   const out: number[] = []
   let gained = 0
-  for (let i = 0; i < nonZero.length; i++) {
-    if (i + 1 < nonZero.length && nonZero[i] === nonZero[i + 1]) {
-      const merged = nonZero[i] * 2
+  const mergedAt: number[] = [] // indices in `out` where a merge resulted
+  for (let i=0;i<nonZero.length;i++){
+    if (i+1<nonZero.length && nonZero[i]===nonZero[i+1]){
+      const merged=nonZero[i]*2
       out.push(merged)
-      gained += merged
+      gained+=merged
+      mergedAt.push(out.length-1)
       i++
     } else {
       out.push(nonZero[i])
     }
   }
-  while (out.length < SIZE) out.push(0)
-  return { out, gained }
+  while(out.length<SIZE) out.push(0)
+  return {out,gained,mergedAt}
 }
 
-function move(dir: Dir) {
-  if (isGameOver.value) return
-  let moved = false
-  for (let l = 0; l < SIZE; l++) {
-    const ids = lineIndices(dir, l)
-    const before = ids.map((i) => board[i])
-    const { out, gained } = collapse(before)
-    out.forEach((v, k) => (board[ids[k]] = v))
-    if (!arraysEqual(before, out)) moved = true
-    if (gained) score.value += gained
+function move(dir: Dir){
+  if(isGameOver.value) return
+  let moved=false
+  const mergedGlobal: number[] = []
+  for(let l=0;l<SIZE;l++){
+    const ids=lineIndices(dir,l)
+    const before=ids.map(i=>board[i])
+    const {out,gained,mergedAt}=collapse(before)
+    out.forEach((v,k)=>board[ids[k]]=v)
+    if(!arraysEqual(before,out)) moved=true
+    if(gained) score.value+=gained
+    // record merged indices on the board
+    mergedAt.forEach(k=>{
+      mergedGlobal.push(ids[k])
+    })
   }
-  if (moved) {
+  if(moved){
     spawn()
     bump()
-    if (!canMove()) isGameOver.value = true
+    // trigger pop animation for merged tiles
+    mergedIndices.value = mergedGlobal
+    if (mergedGlobal.length){
+      setTimeout(()=>{ mergedIndices.value = [] }, 220)
+    }
+    if(!canMove()) isGameOver.value=true
   }
 }
 
-function arraysEqual(a: number[], b: number[]) {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+function arraysEqual(a:number[],b:number[]){
+  if(a.length!==b.length) return false
+  for(let i=0;i<a.length;i++) if(a[i]!==b[i]) return false
   return true
 }
 
-watch(score, () => {
-  if (score.value > bestScore.value) {
-    bestScore.value = score.value
-    localStorage.setItem('v2048_best', String(bestScore.value))
+watch(score,()=>{
+  if(score.value>bestScore.value){
+    bestScore.value=score.value
+    uni.setStorageSync('v2048_best',bestScore.value)
   }
 })
 
-let startX = 0, startY = 0
-
-function onTouchStart(ev: TouchEvent) {
-  const t = ev.touches[0]
-  startX = t.clientX
-  startY = t.clientY
+// 手势
+let startX=0,startY=0
+function onTouchStart(e:TouchEvent){
+  const t=e.touches[0]
+  startX=t.clientX;startY=t.clientY
 }
-function onTouchMove(_ev: TouchEvent) {}
-function onTouchEnd(ev: TouchEvent) {
-  const t = ev.changedTouches[0]
-  handleSwipe(t.clientX, t.clientY)
+function onTouchMove(_e:TouchEvent){}
+function onTouchEnd(e:TouchEvent){
+  const t=e.changedTouches[0]
+  handleSwipe(t.clientX,t.clientY)
 }
-
-function handleSwipe(endX: number, endY: number) {
-  const dx = endX - startX
-  const dy = endY - startY
-  const absX = Math.abs(dx)
-  const absY = Math.abs(dy)
-  const min = 30 // 提高滑动触发阈值，防止误触
-  if (absX < min && absY < min) return
-  const dir: Dir = absX > absY ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up')
+function handleSwipe(endX:number,endY:number){
+  if(mode.value!=='none') return
+  const dx=endX-startX, dy=endY-startY
+  const absX=Math.abs(dx), absY=Math.abs(dy)
+  const min=30
+  if(absX<min && absY<min) return
+  const dir:Dir=absX>absY?(dx>0?'right':'left'):(dy>0?'down':'up')
   move(dir)
 }
 
-onMounted(() => {
-  reset()
-})
+// 任意消除/替换逻辑
+function startRemove(){ mode.value='remove' }
+function startReplace(){ mode.value='replace' }
+
+function onTileClick(i:number){
+  if(mode.value==='remove'){
+    board[i]=0
+    mode.value='none'
+  } else if(mode.value==='replace'){
+    selectedIndex.value=i
+  }
+}
+
+function confirmReplace(val:number){
+  if(selectedIndex.value!==null){
+    board[selectedIndex.value]=val
+  }
+  mode.value='none'
+  selectedIndex.value=null
+}
+
+onMounted(()=>{reset()})
 </script>
 
-<style scoped>
-.wrapper { max-width: 420px; margin: 20px auto; padding: 0 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', sans-serif; color: #776e65; }
-.topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.brand { display: flex; align-items: center; gap: 10px; }
-.logo { background: #edc22e; color: #fff; font-weight: 900; border-radius: 8px; padding: 6px 10px; }
-.subtitle { font-size: 20px; font-weight: 700; }
-.scores { display: flex; gap: 10px; }
-.score { background: #bbada0; color: #fff; border-radius: 8px; padding: 6px 10px; text-align: center; min-width: 84px; }
-.score .label { font-size: 12px; opacity: .9; }
-.score .value { font-weight: 800; font-size: 18px; }
-.board { position: relative; background: #bbada0; padding: 10px; border-radius: 10px; user-select: none; touch-action: none; }
-.grid { display: grid; grid-template-columns: repeat(4, 1fr); grid-gap: 10px; }
-.grid-cell { width: 78px; height: 78px; background: #cdc1b4; border-radius: 6px; }
-.tiles { position: absolute; inset: 10px; display: grid; grid-template-columns: repeat(4, 1fr); grid-gap: 10px; pointer-events: none; }
-.tile { width: 78px; height: 78px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 24px; transition: transform .08s ease, background-color .15s ease; }
-.tile.empty { background: transparent; }
-.overlay { position: absolute; inset: 0; background: rgba(0,0,0,.4); display: grid; place-items: center; border-radius: 10px; }
-.overlay-card { background: #fff; color: #333; padding: 16px 20px; border-radius: 10px; width: 70%; text-align: center; }
-.btn.big { background: #8f7a66; color: #fff; border: none; border-radius: 8px; padding: 10px 16px; font-size: 16px; cursor: pointer; }
-.tile.v2 { background: #eee4da; color: #776e65; }
-.tile.v4 { background: #ede0c8; color: #776e65; }
-.tile.v8 { background: #f2b179; color: #f9f6f2; }
-.tile.v16 { background: #f59563; color: #f9f6f2; }
-.tile.v32 { background: #f67c5f; color: #f9f6f2; }
-.tile.v64 { background: #f65e3b; color: #f9f6f2; }
-.tile.v128 { background: #edcf72; color: #f9f6f2; font-size: 22px; }
-.tile.v256 { background: #edcc61; color: #f9f6f2; font-size: 22px; }
-.tile.v512 { background: #edc850; color: #f9f6f2; font-size: 22px; }
-.tile.v1024 { background: #edc53f; color: #f9f6f2; font-size: 18px; }
-.tile.v2048 { background: #edc22e; color: #f9f6f2; font-size: 18px; }
-.tile[class*='v4096'], .tile[class*='v8192'] { background: #3c3a32; color: #f9f6f2; font-size: 18px; }
+<style scoped lang="less">
+// variables
+@font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+@board-bg: #bbada0;
+@cell-bg: #cdc1b4;
+@btn-bg: #8f7a66;
+@brand-bg: #edc22e;
+
+.wrapper {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  font-family: @font;
+
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 10px;
+
+    .brand {
+      .logo {
+        background: @brand-bg;
+        color: #fff;
+        font-weight: 900;
+        border-radius: 8px;
+        padding: 6px 10px;
+      }
+      .subtitle {
+        font-size: 20px;
+        font-weight: 700;
+      }
+    }
+
+    .scores {
+      display: flex;
+      gap: 10px;
+
+      .score {
+        background: @board-bg;
+        color: #fff;
+        border-radius: 8px;
+        padding: 6px 10px;
+        text-align: center;
+        min-width: 70px;
+
+        .value {
+          font-size: 18px;
+          font-weight: 800;
+        }
+      }
+    }
+  }
+
+  .toolbar {
+    display: flex;
+    margin: 10px 0;
+    padding: 0 10px;
+  }
+
+  .board {
+    position: relative;
+    background: @board-bg;
+    padding: 10px;
+    border-radius: 10px;
+    z-index: 101;
+    margin: 0 10px;
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      grid-gap: 10px;
+
+      .grid-cell {
+        width: 78px;
+        height: 78px;
+        background: @cell-bg;
+        border-radius: 6px;
+      }
+    }
+
+    .tiles {
+      position: absolute;
+      inset: 10px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      grid-gap: 10px;
+      z-index: 20; /* 确保tiles在mask上方 */
+
+      .tile {
+        width: 78px;
+        height: 78px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 900;
+        font-size: 28px;
+        transition: all .15s ease-out;
+        transform: scale(1);
+        
+        &.pop {
+          animation: popIn .15s ease-out forwards;
+        }
+        &.empty {
+          background: transparent;
+        }
+      }
+    }
+
+    .overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, .4);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      border-radius: 10px;
+
+      &-card {
+        background: #fff;
+        color: #333;
+        padding: 16px 20px;
+        border-radius: 10px;
+        width: 70%;
+        text-align: center;
+      }
+    }
+
+  }
+
+  
+}
+
+.mini-tile {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 20px;
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.1s;
+
+  &:not(:last-child){
+    margin-right: 10px;
+  }
+  
+  &:active {
+    transform: scale(0.95);
+  }
+}
+
+.hint-text {
+  color: white;
+  font-size: 18px;
+  font-weight: bold;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  padding: 15px 25px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 20px;
+  pointer-events: none;
+}
+
+// number colors
+.tile,
+.mini-tile {
+  &.v2 { background: #eee4da; color: #776e65; }
+  &.v4 { background: #ede0c8; color: #776e65; }
+  &.v8 { background: #f2b179; color: #f9f6f2; }
+  &.v16 { background: #f59563; color: #f9f6f2; }
+  &.v32 { background: #f67c5f; color: #f9f6f2; }
+}
+
+.tile {
+  &.v64 { background: #f65e3b; color: #f9f6f2; }
+  &.v128 { background: #edcf72; color: #f9f6f2; }
+  &.v256 { background: #edcc61; color: #f9f6f2; }
+  &.v512 { background: #edc850; color: #f9f6f2; }
+  &.v1024 { background: #edc53f; color: #f9f6f2; }
+  &.v2048 { background: #edc22e; color: #f9f6f2; }
+}
+
+// animations should be at root to avoid scoping issues
+@keyframes popIn {
+  0% { transform: scale(0); }
+  100% { transform: scale(1); }
+}
+
+@keyframes pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+/* 蒙层 - 全屏 */
+.mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, .3);
+  z-index: 100;
+  /* 移除 pointer-events: none 以允许点击 */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  touch-action: none; /* 防止触摸滚动 */
+
+  .replace-panel {
+    position: absolute;
+    display: flex;
+    bottom: 50px;
+    z-index: 101;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    pointer-events: auto; /* 确保面板可点击 */
+  }
+  
+  /* 添加点击蒙层关闭功能 */
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: -1;
+  }
+}
+.btn {
+  background: @btn-bg;
+  color: #fff;
+  border: none;
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  margin: 0;
+
+  &:not(:last-child){
+    margin-right: 10px;
+  }
+
+  &.disabled {
+    opacity: 0.6;
+    &::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(255, 255, 255, 0.3);
+      z-index: 1;
+    }
+  }
+
+  &.big {
+    padding: 10px 16px;
+    font-size: 16px;
+  }
+}
 </style>
