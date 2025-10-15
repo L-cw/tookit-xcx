@@ -18,9 +18,9 @@
     </view>
 
     <view class="toolbar">
-      <button class="btn" @click="newGame">重置</button>
-      <button class="btn" :class="{ disabled: board.filter(v => v > 0).length <= 2 }" @click="startRemove">任意消除</button>
-      <button class="btn" @click="startReplace">任意替换</button>
+      <button class="btn btn-primary" @click="newGame">重置</button>
+      <button class="btn btn-primary" :class="{ disabled: board.filter(v => v > 0).length <= 2 }" @click="startRemove">任意消除</button>
+      <button class="btn btn-primary" @click="startReplace">任意替换</button>
     </view>
 
     <view class="board">
@@ -33,7 +33,11 @@
           v-for="(v, i) in board"
           :key="i + '-' + v + '-' + animKey"
           class="tile"
-          :class="['v' + v, { empty: v === 0, pop: poppedIndex===i || mergedIndices.includes(i) }]"
+          :class="['v' + v, { 
+            empty: v === 0, 
+            pop: poppedIndex===i || mergedIndices.includes(i),
+            selected: mode === 'replace' && selectedIndex === i
+          }]"
           @click="onTileClick(i)"
         >
           <text v-if="v !== 0">{{ v }}</text>
@@ -41,15 +45,21 @@
       </view>
 
       <view v-if="isGameOver" class="mask">
-        <view class="overlay-card">
-          <view>游戏结束</view>
-          <view>本局得分：{{ score }}</view>
-          <button class="btn" @click="newGame">再来一局</button>
+        <view class="game-over-modal">
+          <view class="modal-header">
+            <view class="modal-title">游戏结束</view>
+            <view class="modal-subtitle">本局得分</view>
+            <view class="score-display">{{ score }}</view>
+          </view>
+          <view class="modal-actions">
+            <button class="btn btn-outline" @click.stop="isGameOver=false">留在当前</button>
+            <button class="btn btn-primary" @click.stop="newGame">再来一局</button>
+          </view>
         </view>
       </view>
 
     </view>
-    <view v-if="mode==='remove'" class="mask" @click="mode = 'none'">
+    <view v-if="mode==='remove'" class="mask mask-remove" @click="mode = 'none'">
       <view class="hint-text">点击任意数字块进行消除</view>
     </view>
 
@@ -68,7 +78,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue'
+import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
 type Dir = 'left' | 'right' | 'up' | 'down'
 
@@ -83,6 +93,33 @@ const mergedIndices = ref<number[]>([])
 
 const mode = ref<'none'|'remove'|'replace'>('none')
 const selectedIndex = ref<number|null>(null)
+
+// 生成游戏结束的测试数据
+function mockGameOverState() {
+  // 清空当前棋盘
+  reset()
+  
+  // 创建一个无法继续移动的棋盘状态
+  const mockBoard = [
+    2, 4, 2, 4,
+    4, 2, 4, 2,
+    2, 4, 2, 4,
+    4, 2, 4, 2
+  ]
+  
+  // 更新棋盘
+  for (let i = 0; i < board.length; i++) {
+    board[i] = mockBoard[i]
+  }
+  
+  // 设置一个高分
+  score.value = 1000
+  
+  // 强制触发游戏结束检查
+  if (!canMove()) {
+    isGameOver.value = true
+  }
+}
 
 function idx(r: number, c: number) {
   return r * SIZE + c
@@ -101,7 +138,9 @@ function reset() {
   bump()
 }
 
-function newGame() {
+const newGame = () => {
+  // Clear saved game state when starting a new game
+  uni.removeStorageSync('v2048_game_state')
   reset()
 }
 
@@ -146,63 +185,78 @@ function lineIndices(dir: Dir, line: number): number[] {
 }
 
 function collapse(values: number[]) {
-  const nonZero = values.filter(v => v!==0)
+  const nonZero = values.filter(v => v !== 0)
   const out: number[] = []
   let gained = 0
   const mergedAt: number[] = [] // indices in `out` where a merge resulted
-  for (let i=0;i<nonZero.length;i++){
-    if (i+1<nonZero.length && nonZero[i]===nonZero[i+1]){
-      const merged=nonZero[i]*2
+  
+  for (let i = 0; i < nonZero.length; i++) {
+    if (i + 1 < nonZero.length && nonZero[i] === nonZero[i + 1]) {
+      const merged = nonZero[i] * 2
       out.push(merged)
-      gained+=merged
-      mergedAt.push(out.length-1)
+      gained += merged
+      mergedAt.push(out.length - 1)
       i++
     } else {
       out.push(nonZero[i])
     }
   }
-  while(out.length<SIZE) out.push(0)
-  return {out,gained,mergedAt}
+  while (out.length < SIZE) out.push(0)
+  return { out, gained, mergedAt }
 }
 
-function move(dir: Dir){
-  if(isGameOver.value) return
-  let moved=false
+function move(dir: Dir) {
+  if (isGameOver.value) return
+  
+  let moved = false
   const mergedGlobal: number[] = []
-  for(let l=0;l<SIZE;l++){
-    const ids=lineIndices(dir,l)
-    const before=ids.map(i=>board[i])
-    const {out,gained,mergedAt}=collapse(before)
-    out.forEach((v,k)=>board[ids[k]]=v)
-    if(!arraysEqual(before,out)) moved=true
-    if(gained) score.value+=gained
-    // record merged indices on the board
-    mergedAt.forEach(k=>{
+  
+  for (let l = 0; l < SIZE; l++) {
+    const ids = lineIndices(dir, l)
+    const before = ids.map(i => board[i])
+    const { out, gained, mergedAt } = collapse(before)
+    
+    out.forEach((v, k) => board[ids[k]] = v)
+    if (!arraysEqual(before, out)) moved = true
+    if (gained) score.value += gained
+    
+    // Record merged indices on the board
+    mergedAt.forEach(k => {
       mergedGlobal.push(ids[k])
     })
   }
-  if(moved){
+  
+  if (moved) {
     spawn()
     bump()
-    // trigger pop animation for merged tiles
+    
+    // Trigger pop animation for merged tiles
     mergedIndices.value = mergedGlobal
-    if (mergedGlobal.length){
-      setTimeout(()=>{ mergedIndices.value = [] }, 220)
+    if (mergedGlobal.length) {
+      setTimeout(() => { 
+        mergedIndices.value = [] 
+      }, 220)
     }
-    if(!canMove()) isGameOver.value=true
+    
+    if (!canMove()) isGameOver.value = true
   }
 }
 
-function arraysEqual(a:number[],b:number[]){
-  if(a.length!==b.length) return false
-  for(let i=0;i<a.length;i++) if(a[i]!==b[i]) return false
+function arraysEqual(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false
+  
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  
   return true
 }
 
 watch(score,()=>{
-  if(score.value>bestScore.value){
-    bestScore.value=score.value
-    uni.setStorageSync('v2048_best',bestScore.value)
+  // Only update best score if the game is not over or if it's a new best score from a completed game
+  if(score.value > bestScore.value && !isGameOver.value) {
+    bestScore.value = score.value
+    uni.setStorageSync('v2048_best', bestScore.value)
   }
 })
 
@@ -228,27 +282,58 @@ function handleSwipe(endX:number,endY:number){
 }
 
 // 任意消除/替换逻辑
-function startRemove(){ mode.value='remove' }
-function startReplace(){ mode.value='replace' }
-
-function onTileClick(i:number){
-  if(mode.value==='remove'){
-    board[i]=0
-    mode.value='none'
-  } else if(mode.value==='replace'){
-    selectedIndex.value=i
-  }
+function startRemove() {
+  if(board.filter(v => v > 0).length <= 2) return
+  mode.value = 'remove' 
 }
 
-function confirmReplace(val:number){
-  if(selectedIndex.value!==null){
-    board[selectedIndex.value]=val
-  }
-  mode.value='none'
-  selectedIndex.value=null
+function startReplace() { 
+  mode.value = 'replace'
+  selectedIndex.value = null
 }
 
-onMounted(()=>{reset()})
+const onTileClick = (i: number) => {
+  if (mode.value === 'remove' && board[i] > 0) {
+    board[i] = 0
+    mode.value = 'none'
+  } else if (mode.value === 'replace') {
+    // Only allow selecting non-empty tiles for replacement
+    if (board[i] > 0) {
+      selectedIndex.value = i
+    }
+  } 
+}
+
+const confirmReplace = (val: number) => {
+  if (selectedIndex.value !== null) {
+    board[selectedIndex.value] = val
+  }
+  mode.value = 'none'
+  selectedIndex.value = null
+}
+
+onMounted(()=>{
+  // Try to load saved game state
+  const savedState = uni.getStorageSync('v2048_game_state')
+  if (savedState) {
+    const { savedBoard, savedScore } = JSON.parse(savedState)
+    board.splice(0, board.length, ...savedBoard)
+    score.value = savedScore
+  } else {
+    reset()
+  }
+})
+
+onUnmounted(() => {
+  // Save current game state when component is unmounted
+  if (!isGameOver.value) {  // Only save if game is not over
+    const gameState = {
+      savedBoard: [...board],
+      savedScore: score.value
+    }
+    uni.setStorageSync('v2048_game_state', JSON.stringify(gameState))
+  }
+})
 </script>
 
 <style scoped lang="less">
@@ -429,6 +514,15 @@ onMounted(()=>{reset()})
 }
 
 .tile {
+  transition: all 0.1s ease;
+  
+  &.selected {
+    box-shadow: 0 0 0 4px rgba(255, 255, 0, 0.8) inset;
+    transform: scale(0.95);
+    z-index: 2;
+    position: relative;
+  }
+
   &.v64 { background: #f65e3b; color: #f9f6f2; }
   &.v128 { background: #edcf72; color: #f9f6f2; }
   &.v256 { background: #edcc61; color: #f9f6f2; }
@@ -456,14 +550,64 @@ onMounted(()=>{reset()})
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, .3);
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
   z-index: 100;
-  /* 移除 pointer-events: none 以允许点击 */
   display: flex;
   justify-content: center;
   align-items: center;
-  touch-action: none; /* 防止触摸滚动 */
+  touch-action: none;
+  animation: fadeIn 0.2s ease-out;
+  &.mask-remove {
+    padding-top: 30px;
+    align-items: flex-start;
+  }
 
+  .game-over-modal {
+    background: #fff;
+    border-radius: 16px;
+    width: 80%;
+    max-width: 300px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+    transform: translateY(0);
+    animation: slideUp 0.3s ease-out;
+    
+    .modal-header {
+      padding: 24px 20px;
+      text-align: center;
+      background: linear-gradient(135deg, #ff6b6b, #ff8e8e);
+      color: white;
+    }
+    
+    .modal-title {
+      font-size: 24px;
+      font-weight: bold;
+      margin-bottom: 8px;
+    }
+    
+    .modal-subtitle {
+      font-size: 14px;
+      opacity: 0.9;
+      margin-bottom: 4px;
+    }
+    
+    .score-display {
+      font-size: 42px;
+      font-weight: bold;
+      margin: 10px 0 0;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .modal-actions {
+      display: flex;
+      padding: 20px;
+      background: #f8f8f8;
+      justify-content: space-between;
+      gap: 12px;
+    }
+  }
+  
   .replace-panel {
     position: absolute;
     display: flex;
@@ -473,7 +617,7 @@ onMounted(()=>{reset()})
     padding: 10px;
     border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-    pointer-events: auto; /* 确保面板可点击 */
+    pointer-events: auto;
   }
   
   /* 添加点击蒙层关闭功能 */
@@ -487,14 +631,61 @@ onMounted(()=>{reset()})
     z-index: -1;
   }
 }
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { 
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .btn {
-  background: @btn-bg;
-  color: #fff;
-  border: none;
   position: relative;
   overflow: hidden;
+  border: none;
   border-radius: 8px;
   margin: 0;
+  padding: 4px;
+  font-size: 15px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 100px;
+  
+  &-primary {
+    background: @btn-bg;
+    color: white;
+    
+    &:active {
+      transform: translateY(1px);
+    }
+  }
+  
+  &-outline {
+    background: white;
+    color: #666;
+    border: 1px solid #ddd;
+    
+    &:active {
+      background: #f5f5f5;
+      transform: translateY(1px);
+    }
+  }
+  
+  .btn-icon {
+    margin-right: 6px;
+    font-size: 16px;
+  }
 
   &:not(:last-child){
     margin-right: 10px;
@@ -511,6 +702,9 @@ onMounted(()=>{reset()})
       bottom: 0;
       background: rgba(255, 255, 255, 0.3);
       z-index: 1;
+    }
+    &:active {
+      transform: none;
     }
   }
 
