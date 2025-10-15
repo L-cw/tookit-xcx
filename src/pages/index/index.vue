@@ -44,15 +44,15 @@ const categories = ref([
     showMore: false
   },
   {
-    id: 'games',
-    name: '益智解压',
+    id: 'others',
+    name: '其他',
     tools: [
       {
-        id: 'game-2048',
-        title: '2048',
-        desc: '经典数字游戏',
+        id: 'other-number-calc',
+        title: '数字计算',
+        desc: '滑动操作快速进行数字计算',
         url: '/pages/tools/2048',
-        icon: '/static/index/2048.png',
+        icon: '',
         category: 'games',
         isFavorite: true
       },
@@ -156,6 +156,8 @@ const navigateToTool = (url: string) => {
 
 // Initialize on component mount
 initializeFavorites();
+
+uni.showShareMenu()
 
 // Load favorites from storage when component mounts
 onMounted(() => {

@@ -2,16 +2,16 @@
   <view class="wrapper" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
     <view class="topbar">
       <view class="brand">
-        <view class="logo">2048</view>
-        <view class="subtitle">益智解压</view>
+        <view class="logo">数字计算</view>
+        <view class="subtitle"></view>
       </view>
       <view class="scores">
         <view class="score">
-          <view class="label">得分</view>
+          <view class="label">当前</view>
           <view class="value">{{ score }}</view>
         </view>
         <view class="score">
-          <view class="label">最高分</view>
+          <view class="label">最高</view>
           <view class="value">{{ bestScore }}</view>
         </view>
       </view>
@@ -47,13 +47,13 @@
       <view v-if="isGameOver" class="mask">
         <view class="game-over-modal">
           <view class="modal-header">
-            <view class="modal-title">游戏结束</view>
-            <view class="modal-subtitle">本局得分</view>
+            <view class="modal-title">结束</view>
+            <view class="modal-subtitle">当前得分</view>
             <view class="score-display">{{ score }}</view>
           </view>
           <view class="modal-actions">
             <button class="btn btn-outline" @click.stop="isGameOver=false">留在当前</button>
-            <button class="btn btn-primary" @click.stop="newGame">再来一局</button>
+            <button class="btn btn-primary" @click.stop="newGame">重新开始</button>
           </view>
         </view>
       </view>
@@ -311,6 +311,8 @@ const confirmReplace = (val: number) => {
   mode.value = 'none'
   selectedIndex.value = null
 }
+
+uni.showShareMenu()
 
 onMounted(()=>{
   // Try to load saved game state
